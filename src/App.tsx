@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth, type Profile } from '@/lib/auth';
-import type { Crop, Listing, Market, MarketPrice, Policy } from '@/types/database';
+import type { Crop, Listing, Market, MarketPrice, Policy, PriceAlert } from '@/types/database';
 import { languages, makeT, translatePolicy, type Lang } from '@/lib/i18n';
 
 const fallbackCrops: Crop[] = [
@@ -135,7 +135,7 @@ function App() {
           ))}
         </nav>
         <div className="side-divider" />
-        <button className="nav-item alert-nav" onClick={() => notify(t('toast.alertsReady'))}><Bell size={18} /><span>{t('nav.alerts')}</span><span className="alert-dot" /></button>
+        <button className={`nav-item alert-nav ${activeView === 'alerts' ? 'active' : ''}`} onClick={() => navigate('alerts')}><Bell size={18} /><span>{t('nav.alerts')}</span><span className="alert-dot" /></button>
         <div className="sidebar-bottom">
           <div className="trust-card"><div className="trust-icon"><ShieldCheck size={18} /></div><div><strong>{t('sidebar.trusted')}</strong><p>{t('sidebar.trustedDesc')}</p></div></div>
           <button className="profile-chip profile-button" onClick={() => navigate('verification')}><div className="avatar">{profile?.full_name?.slice(0, 2).toUpperCase() ?? 'RK'}</div><div><strong>{profile?.full_name ?? t('sidebar.farmerWorkspace')}</strong><span>{profile?.verification_status === 'verified' ? t('verification.verified') : t('verification.status')}</span></div><ChevronDown size={16} /></button>
@@ -176,6 +176,7 @@ function App() {
           {activeView === 'policies' && <PoliciesView t={t} policies={policies} lang={lang} />}
           {activeView === 'nearby' && <NearbyMandisView t={t} markets={markets} prices={prices} crops={crops} onNotify={notify} />}
           {activeView === 'verification' && <VerificationView t={t} profile={profile} />}
+          {activeView === 'alerts' && <AlertsView t={t} prices={prices} onNotify={notify} />}
         </div>
       </main>
       {showListingForm && <ListingModal t={t} crops={crops} onClose={() => setShowListingForm(false)} onCreated={(listing) => { setListings((current) => [listing, ...current]); setShowListingForm(false); notify(t('modal.published')); }} />}
@@ -274,11 +275,94 @@ function PanelHeading({ title, subtitle, action }: { title: string; subtitle: st
 function PriceRow({ price, index }: { price: MarketPrice; index: number }) { return <div className="price-row"><div className="commodity"><span className={`crop-dot crop-${index}`} /> <strong>{price.crops?.name ?? 'Crop'}</strong></div><span className="market-name">{price.markets?.name ?? 'Market'}<small>{price.markets?.state ?? 'India'}</small></span><strong className="modal-price">{formatCurrency(Number(price.modal_price))}<small>/{price.unit.toLowerCase()}</small></strong><span className="row-trend"><ArrowUpRight size={14} />{[4.2, 2.8, 6.1, 1.9][index] ?? 3.4}%</span></div>; }
 
 function PricesView({ t, prices, crops, onNotify, loading }: { t: TFunc; prices: MarketPrice[]; crops: Crop[]; onNotify: (message: string) => void; loading: boolean }) {
-  const [search, setSearch] = useState(''); const [category, setCategory] = useState('__all'); const [state, setState] = useState('__all'); const [watchCrop, setWatchCrop] = useState('');
+  const { user } = useAuth();
+  const [search, setSearch] = useState(''); const [category, setCategory] = useState('__all'); const [state, setState] = useState('__all');
+  const [alerts, setAlerts] = useState<Set<string>>(new Set());
   const rawCategories = useMemo(() => Array.from(new Set(crops.map((crop) => crop.category))), [crops]);
   const rawStates = useMemo(() => Array.from(new Set(prices.map((price) => price.markets?.state).filter(Boolean) as string[])), [prices]);
   const filtered = prices.filter((price) => { const matchesSearch = (price.crops?.name ?? '').toLowerCase().includes(search.toLowerCase()) || (price.markets?.name ?? '').toLowerCase().includes(search.toLowerCase()); const matchesCategory = category === '__all' || price.crops?.category === category; const matchesState = state === '__all' || price.markets?.state === state; return matchesSearch && matchesCategory && matchesState; });
-  return <><PageIntro eyebrow={t('prices.eyebrow')} title={t('prices.title')} description={t('prices.desc')} action={<button className="outline-button" onClick={() => onNotify(t('prices.reportPrepared'))}><BookOpen size={16} /> {t('prices.downloadReport')}</button>} /><div className="price-banner"><div className="banner-mark"><TrendingUp size={23} /></div><div><strong>{t('prices.movingFavour')}</strong><p>{t('prices.movingDesc')}</p></div><div className="banner-stat"><span>{t('prices.confidence')}</span><strong>{t('prices.high')} <i /></strong></div></div><div className="filter-bar"><div className="search-box"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('prices.searchPlaceholder')} /></div><div className="select-wrap"><Filter size={15} /><select value={category} onChange={(event) => setCategory(event.target.value)}><option value="__all">{t('prices.allCrops')}</option>{rawCategories.map((item) => <option key={item} value={item}>{t(item)}</option>)}</select><ChevronDown size={15} /></div><div className="select-wrap"><MapPin size={15} /><select value={state} onChange={(event) => setState(event.target.value)}><option value="__all">{t('prices.allStates')}</option>{rawStates.map((item) => <option key={item} value={item}>{t(item)}</option>)}</select><ChevronDown size={15} /></div><span className="result-count">{filtered.length} {t('prices.results')}</span></div><section className="panel full-panel"><div className="table-head full"><span>{t('prices.commodity')}</span><span>{t('prices.marketLocation')}</span><span>{t('prices.minMax')}</span><span>{t('prices.modalPrice')}</span><span>{t('prices.arrivals')}</span><span>{t('prices.updated')}</span><span /></div>{loading ? <div className="empty-state">{t('prices.loading')}</div> : filtered.map((price, index) => <div className="price-row full" key={price.id}><div className="commodity"><span className={`crop-dot crop-${index % 6}`} /><strong>{price.crops?.name ?? 'Crop'}</strong><small>{t(price.crops?.category ?? 'prices.produce')}</small></div><span className="market-name">{price.markets?.name ?? 'Market'}<small><MapPin size={12} /> {price.markets?.district ?? (t(price.markets?.state ?? '') || price.markets?.state || 'India')}</small></span><span className="range-price">{formatCurrency(Number(price.min_price))} — {formatCurrency(Number(price.max_price))}</span><strong className="modal-price">{formatCurrency(Number(price.modal_price))}<small>/{price.unit.toLowerCase()}</small></strong><span className="arrival">{Number(price.arrival_qty ?? 0).toLocaleString('en-IN')} <small>{t('prices.qtl')}</small></span><span className="updated">{t('prices.today')}<br /><small>09:30 AM</small></span><button className={`watch-button ${watchCrop === price.crop_id ? 'watched' : ''}`} onClick={() => { setWatchCrop(price.crop_id); onNotify(t('prices.alertSet')); }}><Bell size={15} /></button></div>)}{!filtered.length && <div className="empty-state">{t('prices.noMatch')}</div>}</section><div className="source-note"><ShieldCheck size={15} /> {t('prices.sourceNote')}</div></>;
+  useEffect(() => { if (!user) return; supabase.from('price_alerts').select('crop_id').eq('user_id', user.id).eq('is_active', true).then(({ data }) => { if (data) setAlerts(new Set(data.map((a: { crop_id: string }) => a.crop_id))); }); }, [user]);
+  const toggleAlert = async (cropId: string, cropName: string) => {
+    if (!user) return;
+    if (alerts.has(cropId)) {
+      await supabase.from('price_alerts').delete().eq('user_id', user.id).eq('crop_id', cropId);
+      setAlerts((prev) => { const next = new Set(prev); next.delete(cropId); return next; });
+      onNotify(t('prices.alertRemoved'));
+    } else {
+      await supabase.from('price_alerts').insert({ user_id: user.id, crop_id: cropId, alert_type: 'three_month_low', is_active: true });
+      setAlerts((prev) => new Set(prev).add(cropId));
+      onNotify(t('prices.alertSet'));
+    }
+  };
+  return <><PageIntro eyebrow={t('prices.eyebrow')} title={t('prices.title')} description={t('prices.desc')} action={<button className="outline-button" onClick={() => onNotify(t('prices.reportPrepared'))}><BookOpen size={16} /> {t('prices.downloadReport')}</button>} /><div className="price-banner"><div className="banner-mark"><TrendingUp size={23} /></div><div><strong>{t('prices.movingFavour')}</strong><p>{t('prices.movingDesc')}</p></div><div className="banner-stat"><span>{t('prices.confidence')}</span><strong>{t('prices.high')} <i /></strong></div></div><div className="filter-bar"><div className="search-box"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('prices.searchPlaceholder')} /></div><div className="select-wrap"><Filter size={15} /><select value={category} onChange={(event) => setCategory(event.target.value)}><option value="__all">{t('prices.allCrops')}</option>{rawCategories.map((item) => <option key={item} value={item}>{t(item)}</option>)}</select><ChevronDown size={15} /></div><div className="select-wrap"><MapPin size={15} /><select value={state} onChange={(event) => setState(event.target.value)}><option value="__all">{t('prices.allStates')}</option>{rawStates.map((item) => <option key={item} value={item}>{t(item)}</option>)}</select><ChevronDown size={15} /></div><span className="result-count">{filtered.length} {t('prices.results')}</span></div><section className="panel full-panel"><div className="table-head full"><span>{t('prices.commodity')}</span><span>{t('prices.marketLocation')}</span><span>{t('prices.minMax')}</span><span>{t('prices.modalPrice')}</span><span>{t('prices.arrivals')}</span><span>{t('prices.updated')}</span><span /></div>{loading ? <div className="empty-state">{t('prices.loading')}</div> : filtered.map((price, index) => <div className="price-row full" key={price.id}><div className="commodity"><span className={`crop-dot crop-${index % 6}`} /><strong>{price.crops?.name ?? 'Crop'}</strong><small>{t(price.crops?.category ?? 'prices.produce')}</small></div><span className="market-name">{price.markets?.name ?? 'Market'}<small><MapPin size={12} /> {price.markets?.district ?? (t(price.markets?.state ?? '') || price.markets?.state || 'India')}</small></span><span className="range-price">{formatCurrency(Number(price.min_price))} — {formatCurrency(Number(price.max_price))}</span><strong className="modal-price">{formatCurrency(Number(price.modal_price))}<small>/{price.unit.toLowerCase()}</small></strong><span className="arrival">{Number(price.arrival_qty ?? 0).toLocaleString('en-IN')} <small>{t('prices.qtl')}</small></span><span className="updated">{t('prices.today')}<br /><small>09:30 AM</small></span><button className={`watch-button ${alerts.has(price.crop_id) ? 'watched' : ''}`} onClick={() => void toggleAlert(price.crop_id, price.crops?.name ?? '')}><Bell size={15} /></button></div>)}{!filtered.length && <div className="empty-state">{t('prices.noMatch')}</div>}</section><div className="source-note"><ShieldCheck size={15} /> {t('prices.sourceNote')}</div></>;
+}
+
+function AlertsView({ t, prices, onNotify }: { t: TFunc; prices: MarketPrice[]; onNotify: (message: string) => void }) {
+  const { user } = useAuth();
+  const [alerts, setAlerts] = useState<PriceAlert[]>([]);
+  const [histData, setHistData] = useState<Record<string, { min3mo: number; max3mo: number; count: number }>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    const load = async () => {
+      const { data } = await supabase.from('price_alerts').select('id, crop_id, market_id, user_id, threshold_price, alert_type, is_active, created_at').eq('user_id', user.id).eq('is_active', true).order('created_at', { ascending: false });
+      const alertList = (data ?? []) as PriceAlert[];
+      setAlerts(alertList);
+      if (!alertList.length) { setLoading(false); return; }
+      const threeMonthsAgo = new Date(); threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+      const histResults = await Promise.all(alertList.map((a) => supabase.from('market_prices').select('modal_price').eq('crop_id', a.crop_id).gte('price_date', threeMonthsAgo.toISOString().slice(0, 10)).order('price_date', { ascending: true }) ));
+      const histMap: Record<string, { min3mo: number; max3mo: number; count: number }> = {};
+      histResults.forEach((res, i) => {
+        const rows = res.data ?? [];
+        if (rows.length) { const vals = rows.map((r: { modal_price: number }) => Number(r.modal_price)); histMap[alertList[i].crop_id] = { min3mo: Math.min(...vals), max3mo: Math.max(...vals), count: rows.length }; } });
+      setHistData(histMap);
+      setLoading(false);
+    };
+    void load();
+  }, [user]);
+
+  const removeAlert = async (alertId: string, cropId: string) => {
+    await supabase.from('price_alerts').delete().eq('id', alertId);
+    setAlerts((prev) => prev.filter((a) => a.id !== alertId));
+    setHistData((prev) => { const next = { ...prev }; delete next[cropId]; return next; });
+    onNotify(t('prices.alertRemoved'));
+  };
+
+  const todayPrices = useMemo(() => { const map: Record<string, MarketPrice[]> = {}; prices.forEach((p) => { (map[p.crop_id] ??= []).push(p); }); return map; }, [prices]);
+
+  return <><PageIntro eyebrow={t('nav.alerts')} title={t('prices.myAlerts')} description={t('prices.myAlertsDesc')} />
+    {loading ? <div className="empty-state">{t('prices.loading')}</div> : !alerts.length ? <div className="empty-state alert-empty"><Bell size={32} /><p>{t('prices.noAlerts')}</p></div> :
+    <section className="panel alerts-panel">
+      <div className="alerts-list">
+        {alerts.map((alert) => {
+          const cropPrices = todayPrices[alert.crop_id] ?? [];
+          const todayPrice = cropPrices[0];
+          const hist = histData[alert.crop_id];
+          const isAtLow = hist && todayPrice && Number(todayPrice.modal_price) <= hist.min3mo;
+          const cropName = todayPrice?.crops?.name ?? alert.crop_id;
+          return <div className={`alert-card ${isAtLow ? 'alert-low' : ''}`} key={alert.id}>
+            <div className="alert-card-head">
+              <div className="alert-crop-icon"><Bell size={18} /></div>
+              <div className="alert-card-info">
+                <strong>{cropName}</strong>
+                <span>{todayPrice ? formatCurrency(Number(todayPrice.modal_price)) : '—'}{todayPrice ? ` / ${todayPrice.unit.toLowerCase()}` : ''}</span>
+              </div>
+              {isAtLow ? <span className="alert-badge low">{t('prices.threeMonthLow')}</span> : <span className="alert-badge normal">{t('prices.notLowest')}</span>}
+            </div>
+            {isAtLow ? <div className="alert-low-banner"><TrendingUp size={15} /> {t('prices.threeMonthLowDesc')}</div> : null}
+            {hist && <div className="alert-hist-row">
+              <span>3-mo low: {formatCurrency(hist.min3mo)}</span>
+              <span>3-mo high: {formatCurrency(hist.max3mo)}</span>
+              <span>{hist.count} data points</span>
+            </div>}
+            {todayPrice && <div className="alert-market-row"><MapPin size={13} /> {todayPrice.markets?.name ?? 'Market'} · {todayPrice.markets?.state ?? 'India'}</div>}
+            <button className="alert-remove-btn" onClick={() => void removeAlert(alert.id, alert.crop_id)}><X size={14} /> {t('prices.alertRemoved').replace('.', '')}</button>
+          </div>;
+        })}
+      </div>
+    </section>}
+  </>;
 }
 
 function MarketplaceView({ t, listings, onAdd, onNotify }: { t: TFunc; listings: Listing[]; onAdd: () => void; onNotify: (message: string) => void }) { const [search, setSearch] = useState(''); const filtered = listings.filter((listing) => listing.crop_name.toLowerCase().includes(search.toLowerCase()) || listing.state.toLowerCase().includes(search.toLowerCase())); return <><PageIntro eyebrow={t('market.eyebrow')} title={t('market.title')} description={t('market.desc')} action={<button className="primary-button" onClick={onAdd}><Plus size={17} /> {t('market.listProduce')}</button>} /><div className="linkage-stats"><div><Handshake size={19} /><strong>2,840</strong><span>{t('market.verifiedBuyers')}</span></div><div><MapPin size={19} /><strong>20+</strong><span>{t('market.marketsConnected')}</span></div><div><ShieldCheck size={19} /><strong>₹1.8Cr</strong><span>{t('market.tradedMonth')}</span></div></div><div className="marketplace-toolbar"><div className="search-box"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('market.searchPlaceholder')} /></div><button className="outline-button" onClick={() => onNotify(t('market.buyerReqsSoon'))}>{t('market.viewBuyerReqs')} <ArrowUpRight size={16} /></button></div><section className="listing-grid">{filtered.length ? filtered.map((listing) => <ListingCard key={listing.id} listing={listing} onNotify={onNotify} t={t} />) : <div className="empty-state">{t('market.noListings')}</div>}</section></>; }

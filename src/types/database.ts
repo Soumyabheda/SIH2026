@@ -41,6 +41,17 @@ export type Policy = {
   state: string | null;
 };
 
+export type PriceAlert = {
+  id: string;
+  crop_id: string;
+  market_id: string | null;
+  user_id: string | null;
+  threshold_price: number | null;
+  alert_type: string;
+  is_active: boolean;
+  created_at: string;
+};
+
 export type Listing = {
   id: string;
   crop_name: string;
