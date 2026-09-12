@@ -200,10 +200,10 @@ function AuthScreen() {
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setSaving(true); setError(''); setNotice('');
     if (mode === 'login') {
-      const result = await signIn(form.email, form.password);
-      if (result.error) setError(t('auth.invalid'));
+      const result = await signIn(form.email.trim(), form.password);
+      if (result.error) setError(result.error);
     } else {
-      const result = await signUp(form.email, form.password, form.fullName, role);
+      const result = await signUp(form.email.trim(), form.password, form.fullName, role);
       if (result.error) setError(result.error.toLowerCase().includes('already') ? t('auth.invalid') : t('auth.network'));
       else setNotice(t('auth.accountCreated'));
     }

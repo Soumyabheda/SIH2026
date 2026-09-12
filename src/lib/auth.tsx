@@ -67,11 +67,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     profile,
     loading,
     signIn: async (email, password) => {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       return { error: error?.message ?? null };
     },
     signUp: async (email, password, fullName, role) => {
-      const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName, role } } });
+      const { data, error } = await supabase.auth.signUp({ email: email.trim(), password, options: { data: { full_name: fullName, role } } });
       return { error: error?.message ?? null, created: Boolean(data.user) };
     },
     signOut: async () => { await supabase.auth.signOut(); },
